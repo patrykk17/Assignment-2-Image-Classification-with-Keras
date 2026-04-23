@@ -7,13 +7,14 @@ from keras.optimizers import Adam
 import matplotlib.pyplot as plt
 import numpy as np
 import time
+from sklearn.metrics import classification_report
 
 batch_size = 32
 num_classes = 3
 epochs = 15
 img_width = 128
 img_height = 128
-fit = True
+fit = False
 
 train_dir = 'C:\\Users\\patry\\Desktop\\Assignment2\\chest_xray\\train'
 test_dir = 'C:\\Users\\patry\\Desktop\\Assignment2\\chest_xray\\test'
@@ -38,7 +39,6 @@ test_ds = tf.keras.preprocessing.image_dataset_from_directory(
     labels='inferred',
     shuffle=True)
 
-# Prefetch for performance
 class_names = train_ds.class_names
 print('Class Names:', class_names)
 num_classes = len(class_names)
@@ -92,11 +92,9 @@ base_model = tf.keras.applications.EfficientNetB0(
 base_model.trainable = False
 
 inputs = tf.keras.Input(shape=(img_height, img_width, 3))
-# Data Augmentation (Q4)
 x = tf.keras.layers.RandomFlip("horizontal")(inputs)
 x = tf.keras.layers.RandomRotation(0.1)(x)
 x = tf.keras.layers.RandomZoom(0.1)(x)
-# EfficientNet has its own preprocessing built in
 x = base_model(x, training=False)
 x = tf.keras.layers.GlobalAveragePooling2D()(x)
 x = Dense(128, activation='relu')(x)
@@ -121,73 +119,81 @@ if fit:
         validation_data=val_ds,
         callbacks=[save_callback, early_stop],
         epochs=epochs)
+
+    # ── FINE-TUNING (Q6) ──────────────────────────────────────────────────────
+    print("\nFine-tuning top layers of EfficientNetB0...")
+    base_model.trainable = True
+    for layer in base_model.layers[:-20]:
+        layer.trainable = False
+
+    model.compile(loss='sparse_categorical_crossentropy',
+                  optimizer=Adam(learning_rate=0.00001),
+                  metrics=['accuracy'])
+
+    start_fine = time.time()
+    history_fine = model.fit(
+        train_ds,
+        validation_data=val_ds,
+        epochs=8)
+    end_fine = time.time()
+    print(f'Fine-tuning time: {end_fine - start_fine:.2f} seconds')
+
+    # ── PLOTS ─────────────────────────────────────────────────────────────────
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 2, 1)
+    plt.plot(history.history['accuracy'], label='train')
+    plt.plot(history.history['val_accuracy'], label='val')
+    plt.title('Model Accuracy - EfficientNetB0')
+    plt.ylabel('Accuracy')
+    plt.xlabel('Epoch')
+    plt.legend()
+    plt.subplot(1, 2, 2)
+    plt.plot(history.history['loss'], label='train')
+    plt.plot(history.history['val_loss'], label='val')
+    plt.title('Model Loss - EfficientNetB0')
+    plt.ylabel('Loss')
+    plt.xlabel('Epoch')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 2, 1)
+    plt.plot(history_fine.history['accuracy'], label='train')
+    plt.plot(history_fine.history['val_accuracy'], label='val')
+    plt.title('Fine-tuning Accuracy')
+    plt.ylabel('Accuracy')
+    plt.xlabel('Epoch')
+    plt.legend()
+    plt.subplot(1, 2, 2)
+    plt.plot(history_fine.history['loss'], label='train')
+    plt.plot(history_fine.history['val_loss'], label='val')
+    plt.title('Fine-tuning Loss')
+    plt.ylabel('Loss')
+    plt.xlabel('Epoch')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
 else:
     model = tf.keras.models.load_model("pneumonia.keras")
+
 end = time.time()
-print(f'\nPhase 1 training time: {end - start:.2f} seconds')
+print(f'\nTotal time: {end - start:.2f} seconds')
 
 score = model.evaluate(test_ds, batch_size=batch_size)
-print('Test accuracy after phase 1:', score[1])
+print('Test accuracy:', score[1])
 
-# ── FINE-TUNING (Q6) ──────────────────────────────────────────────────────────
-print("\nFine-tuning top layers of EfficientNetB0...")
-base_model.trainable = True
-for layer in base_model.layers[:-20]:
-    layer.trainable = False
+# ── PER-CLASS METRICS (Q7, Q8) ────────────────────────────────────────────────
+y_true = []
+y_pred = []
+for images, labels in test_ds:
+    preds = model.predict(images, verbose=0)
+    y_true.extend(labels.numpy())
+    y_pred.extend(np.argmax(preds, axis=1))
 
-model.compile(loss='sparse_categorical_crossentropy',
-              optimizer=Adam(learning_rate=0.00001),
-              metrics=['accuracy'])
-
-start_fine = time.time()
-history_fine = model.fit(
-    train_ds,
-    validation_data=val_ds,
-    epochs=8)
-end_fine = time.time()
-print(f'Fine-tuning time: {end_fine - start_fine:.2f} seconds')
-
-score = model.evaluate(test_ds, batch_size=batch_size)
-print('Test accuracy after fine-tuning:', score[1])
-
-# ── PLOTS ─────────────────────────────────────────────────────────────────────
-plt.figure(figsize=(12, 4))
-plt.subplot(1, 2, 1)
-plt.plot(history.history['accuracy'], label='train')
-plt.plot(history.history['val_accuracy'], label='val')
-plt.title('Model Accuracy - EfficientNetB0')
-plt.ylabel('Accuracy')
-plt.xlabel('Epoch')
-plt.legend()
-
-plt.subplot(1, 2, 2)
-plt.plot(history.history['loss'], label='train')
-plt.plot(history.history['val_loss'], label='val')
-plt.title('Model Loss - EfficientNetB0')
-plt.ylabel('Loss')
-plt.xlabel('Epoch')
-plt.legend()
-plt.tight_layout()
-plt.show()
-
-plt.figure(figsize=(12, 4))
-plt.subplot(1, 2, 1)
-plt.plot(history_fine.history['accuracy'], label='train')
-plt.plot(history_fine.history['val_accuracy'], label='val')
-plt.title('Fine-tuning Accuracy')
-plt.ylabel('Accuracy')
-plt.xlabel('Epoch')
-plt.legend()
-
-plt.subplot(1, 2, 2)
-plt.plot(history_fine.history['loss'], label='train')
-plt.plot(history_fine.history['val_loss'], label='val')
-plt.title('Fine-tuning Loss')
-plt.ylabel('Loss')
-plt.xlabel('Epoch')
-plt.legend()
-plt.tight_layout()
-plt.show()
+print("\nClassification Report:")
+print(classification_report(y_true, y_pred, target_names=class_names))
 
 # ── SAMPLE PREDICTIONS ────────────────────────────────────────────────────────
 test_batch = test_ds.take(1)
