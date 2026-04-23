@@ -64,6 +64,11 @@ plt.xlabel('Class')
 plt.tight_layout()
 plt.show()
 
+# ── CLASS WEIGHTS TO ADDRESS IMBALANCE (Q2) ───────────────────────────────────
+total = sum(train_counts)
+class_weight = {i: total / (num_classes * train_counts[i]) for i in range(num_classes)}
+print("\nClass Weights:", class_weight)
+
 # ── SAMPLE IMAGES ─────────────────────────────────────────────────────────────
 plt.figure(figsize=(10, 10))
 for images, labels in train_ds.take(2):
@@ -104,6 +109,7 @@ if fit:
         batch_size=batch_size,
         validation_data=val_ds,
         callbacks=[save_callback],
+        class_weight=class_weight,
         epochs=epochs)
 else:
     model = tf.keras.models.load_model("pneumonia.keras")
