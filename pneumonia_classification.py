@@ -47,7 +47,7 @@ train_ds = train_ds.prefetch(buffer_size=AUTOTUNE)
 val_ds = val_ds.prefetch(buffer_size=AUTOTUNE)
 test_ds = test_ds.prefetch(buffer_size=AUTOTUNE)
 
-# ── DATASET ANALYSIS - CLASS DISTRIBUTION (Q2) ────────────────────────────────
+# check class distribution in training and test sets
 print("\nClass Distribution in Training Set:")
 train_counts = []
 for cls in class_names:
@@ -69,12 +69,12 @@ plt.xlabel('Class')
 plt.tight_layout()
 plt.show()
 
-# ── CLASS WEIGHTS (Q2) ────────────────────────────────────────────────────────
+# compute class weights to handle imbalance
 total = sum(train_counts)
 class_weight = {i: total / (num_classes * train_counts[i]) for i in range(num_classes)}
 print("\nClass Weights:", class_weight)
 
-# ── SAMPLE IMAGES ─────────────────────────────────────────────────────────────
+# show sample training images
 plt.figure(figsize=(10, 10))
 for images, labels in train_ds.take(1):
     for i in range(6):
@@ -84,7 +84,7 @@ for images, labels in train_ds.take(1):
         plt.axis("off")
 plt.show()
 
-# ── TRANSFER LEARNING WITH EfficientNetB0 (Q6) ────────────────────────────────
+# build model using EfficientNetB0 as pretrained base
 base_model = tf.keras.applications.EfficientNetB0(
     input_shape=(img_height, img_width, 3),
     include_top=False,
@@ -92,6 +92,7 @@ base_model = tf.keras.applications.EfficientNetB0(
 base_model.trainable = False
 
 inputs = tf.keras.Input(shape=(img_height, img_width, 3))
+# data augmentation layers
 x = tf.keras.layers.RandomFlip("horizontal")(inputs)
 x = tf.keras.layers.RandomRotation(0.1)(x)
 x = tf.keras.layers.RandomZoom(0.1)(x)
@@ -120,7 +121,7 @@ if fit:
         callbacks=[save_callback, early_stop],
         epochs=epochs)
 
-    # ── FINE-TUNING (Q6) ──────────────────────────────────────────────────────
+    # unfreeze top layers for fine-tuning
     print("\nFine-tuning top layers of EfficientNetB0...")
     base_model.trainable = True
     for layer in base_model.layers[:-20]:
@@ -138,7 +139,6 @@ if fit:
     end_fine = time.time()
     print(f'Fine-tuning time: {end_fine - start_fine:.2f} seconds')
 
-    # ── PLOTS ─────────────────────────────────────────────────────────────────
     plt.figure(figsize=(12, 4))
     plt.subplot(1, 2, 1)
     plt.plot(history.history['accuracy'], label='train')
@@ -184,7 +184,7 @@ print(f'\nTotal time: {end - start:.2f} seconds')
 score = model.evaluate(test_ds, batch_size=batch_size)
 print('Test accuracy:', score[1])
 
-# ── PER-CLASS METRICS (Q7, Q8) ────────────────────────────────────────────────
+# per-class precision, recall and F1
 y_true = []
 y_pred = []
 for images, labels in test_ds:
@@ -195,7 +195,7 @@ for images, labels in test_ds:
 print("\nClassification Report:")
 print(classification_report(y_true, y_pred, target_names=class_names))
 
-# ── SAMPLE PREDICTIONS ────────────────────────────────────────────────────────
+# sample predictions on test images
 test_batch = test_ds.take(1)
 plt.figure(figsize=(10, 10))
 for images, labels in test_batch:
@@ -206,4 +206,50 @@ for images, labels in test_batch:
         plt.title('Actual:' + class_names[labels[i].numpy()] +
                   '\nPredicted:{} {:.2f}%'.format(class_names[np.argmax(prediction)], 100 * np.max(prediction)))
         plt.axis("off")
+plt.show()
+
+# saliency map showing what regions the model focuses on
+def make_gradcam_heatmap(img_array, model):
+    img_tensor = tf.cast(img_array, tf.float32)
+    with tf.GradientTape() as tape:
+        tape.watch(img_tensor)
+        predictions = model(img_tensor, training=False)
+        pred_index = tf.argmax(predictions[0])
+        class_channel = predictions[:, pred_index]
+    grads = tape.gradient(class_channel, img_tensor)
+    grads = tf.abs(grads)
+    heatmap = tf.reduce_max(grads, axis=-1)[0]
+    heatmap = heatmap / (tf.reduce_max(heatmap) + 1e-8)
+    return heatmap.numpy()
+
+def overlay_gradcam(img, heatmap):
+    heatmap_resized = np.array(
+        tf.image.resize(heatmap[..., np.newaxis], (img.shape[0], img.shape[1]))
+    ).squeeze()
+    heatmap_colored = np.uint8(plt.cm.jet(heatmap_resized) * 255)[..., :3]
+    superimposed = np.uint8(heatmap_colored * 0.4 + img * 0.6)
+    return superimposed
+
+plt.figure(figsize=(12, 8))
+for images, labels in test_ds.take(1):
+    for i in range(min(6, len(images))):
+        img = images[i].numpy().astype("uint8")
+        img_array = tf.expand_dims(images[i], 0)
+        pred = model.predict(img_array, verbose=0)
+        pred_label = np.argmax(pred)
+        true_label = labels[i].numpy()
+        try:
+            heatmap = make_gradcam_heatmap(img_array, model)
+            superimposed = overlay_gradcam(img, heatmap)
+            ax = plt.subplot(2, 3, i + 1)
+            plt.imshow(superimposed)
+        except Exception as e:
+            print(f"GradCAM failed for image {i}: {e}")
+            ax = plt.subplot(2, 3, i + 1)
+            plt.imshow(img)
+        plt.title(f'True: {class_names[true_label]}\nPred: {class_names[pred_label]}', fontsize=8)
+        plt.axis("off")
+plt.suptitle('GradCAM - What the CNN sees', fontsize=12)
+plt.tight_layout(rect=[0, 0, 1, 0.95])
+plt.savefig('gradcam_output.png', dpi=100, bbox_inches='tight')
 plt.show()
