@@ -79,7 +79,7 @@ for images, labels in train_ds.take(2):
         plt.axis("off")
 plt.show()
 
-# ── BUILD MODEL ───────────────────────────────────────────────────────────────
+# ── BUILD MODEL - replace Flatten with GlobalAveragePooling2D to reduce overfitting (Q3) ──
 model = tf.keras.models.Sequential([
     Rescaling(1.0/255),
     Conv2D(16, (3,3), activation='relu', input_shape=(img_height, img_width, img_channels)),
@@ -88,7 +88,7 @@ model = tf.keras.models.Sequential([
     MaxPooling2D(2,2),
     Conv2D(32, (3,3), activation='relu'),
     MaxPooling2D(2,2),
-    Flatten(),
+    tf.keras.layers.GlobalAveragePooling2D(),
     Dense(512, activation='relu'),
     Dropout(0.2),
     Dense(num_classes, activation='softmax')
@@ -119,15 +119,28 @@ print(f'\nTraining time: {end - start:.2f} seconds')
 score = model.evaluate(test_ds, batch_size=batch_size)
 print('Test accuracy:', score[1])
 
+# ── ACCURACY + LOSS PLOTS (Q3) ────────────────────────────────────────────────
 if fit:
-    plt.plot(history.history['accuracy'])
-    plt.plot(history.history['val_accuracy'])
-    plt.title('model accuracy')
-    plt.ylabel('accuracy')
-    plt.xlabel('epoch')
-    plt.legend(['train', 'val'], loc='upper left')
+    plt.figure(figsize=(12, 4))
+    plt.subplot(1, 2, 1)
+    plt.plot(history.history['accuracy'], label='train')
+    plt.plot(history.history['val_accuracy'], label='val')
+    plt.title('Model Accuracy')
+    plt.ylabel('Accuracy')
+    plt.xlabel('Epoch')
+    plt.legend()
+
+    plt.subplot(1, 2, 2)
+    plt.plot(history.history['loss'], label='train')
+    plt.plot(history.history['val_loss'], label='val')
+    plt.title('Model Loss')
+    plt.ylabel('Loss')
+    plt.xlabel('Epoch')
+    plt.legend()
+    plt.tight_layout()
     plt.show()
 
+# ── SAMPLE PREDICTIONS ────────────────────────────────────────────────────────
 test_batch = test_ds.take(1)
 plt.figure(figsize=(10, 10))
 for images, labels in test_batch:
